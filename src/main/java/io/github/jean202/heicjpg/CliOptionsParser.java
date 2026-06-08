@@ -15,13 +15,14 @@ final class CliOptionsParser {
         boolean overwrite = false;
         boolean dryRun = false;
         Integer maxDimension = null;
+        boolean deleteConverted = false;
 
         for (int index = 0; index < args.length; index++) {
             String argument = args[index];
             switch (argument) {
                 case "-h":
                 case "--help":
-                    return new CliOptions(List.of(), null, false, false, null, true);
+                    return new CliOptions(List.of(), null, false, false, null, false, true);
                 case "-o":
                 case "--output-dir":
                     index = requireValue(args, index, argument);
@@ -32,6 +33,9 @@ final class CliOptionsParser {
                     break;
                 case "--dry-run":
                     dryRun = true;
+                    break;
+                case "--delete-converted":
+                    deleteConverted = true;
                     break;
                 case "--max-dimension":
                     index = requireValue(args, index, argument);
@@ -49,7 +53,7 @@ final class CliOptionsParser {
             throw new IllegalArgumentException("At least one file or directory path is required.");
         }
 
-        return new CliOptions(List.copyOf(inputs), outputDir, overwrite, dryRun, maxDimension, false);
+        return new CliOptions(List.copyOf(inputs), outputDir, overwrite, dryRun, maxDimension, deleteConverted, false);
     }
 
     private static int requireValue(String[] args, int currentIndex, String option) {

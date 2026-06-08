@@ -4,6 +4,22 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 
 이 프로젝트는 당장 내 작업 흐름을 개선하는 로컬 도구를 먼저 만들고, 이후 같은 문제를 Swift 앱으로 확장하기 위한 첫 단계로 시작했습니다.
 
+## Status
+
+진행률: 80%
+
+- [x] Java 17 CLI 구현
+- [x] 단일 파일 변환
+- [x] 디렉터리 재귀 변환
+- [x] 출력 디렉터리 구조 보존
+- [x] overwrite, dry-run, max-dimension 옵션
+- [x] 기본 테스트 스크립트
+- [ ] Homebrew 또는 설치 스크립트 정리
+- [ ] SwiftUI macOS/iOS 앱 확장
+- [ ] 변환 전후 스크린샷 추가
+
+다음: Java CLI를 설치 가능한 형태로 정리한 뒤 SwiftUI 앱 확장 범위를 별도 문서로 분리하기
+
 ## Why
 
 - 아이폰 사진이 `HEIC`라서 GPT 업로드나 일부 웹 서비스에서 바로 처리되지 않는 경우가 있음
@@ -19,6 +35,7 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 - `--overwrite`로 기존 출력 덮어쓰기
 - `--dry-run`으로 실제 변환 없이 작업 계획 확인
 - `--max-dimension`으로 긴 변 기준 리사이즈
+- `--delete-converted`로 검토 후 짝 `.jpg`가 있는 원본 `HEIC`만 영구 삭제 (삭제 전 확인)
 
 ## Requirements
 
@@ -46,6 +63,19 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 ./heic-jpg ~/Pictures/iPhone --dry-run
 ```
 
+변환 결과를 직접 검토한 뒤, 짝 `.jpg`가 있는 원본 `HEIC`만 정리:
+
+```bash
+# 1) 변환
+./heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted
+# 2) 결과를 눈으로 검토
+# 3) 변환 때와 같은 인자로 원본 정리 (삭제 전 y/N 확인)
+./heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted --delete-converted
+```
+
+`--delete-converted`는 짝 `.jpg`가 실제로 존재하고 비어있지 않은 `HEIC`만
+영구 삭제합니다. 삭제 대상 목록을 먼저 보여주고 `y`를 입력해야 실행합니다.
+
 ## CLI Options
 
 ```text
@@ -59,6 +89,8 @@ Options:
       --overwrite           Replace existing .jpg targets.
       --dry-run             Print the planned work without converting files.
       --max-dimension N     Resize the longest edge to N pixels before saving.
+      --delete-converted    Permanently delete HEIC/HEIF inputs that already
+                            have a matching .jpg. Prompts before deleting.
   -h, --help                Show this help.
 ```
 

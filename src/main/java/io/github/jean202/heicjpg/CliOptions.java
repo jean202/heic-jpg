@@ -9,6 +9,7 @@ record CliOptions(
         boolean overwrite,
         boolean dryRun,
         Integer maxDimension,
+        boolean deleteConverted,
         boolean help
 ) {
 }

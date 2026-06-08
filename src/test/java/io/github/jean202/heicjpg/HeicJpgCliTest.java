@@ -20,6 +20,11 @@ public final class HeicJpgCliTest {
         shouldSupportDryRunWithoutCallingConverter();
         shouldRejectUnsupportedFileInput();
         shouldResolveUnicodeNormalizedMacPaths();
+        shouldDeleteHeicWithMatchingJpgWhenConfirmed();
+        shouldKeepHeicWithoutMatchingJpg();
+        shouldKeepHeicWhenJpgIsEmpty();
+        shouldNotDeleteWhenConfirmationDeclined();
+        shouldMatchJpgUnderOutputDirStructure();
         System.out.println("All tests passed.");
     }
 
@@ -38,6 +43,7 @@ public final class HeicJpgCliTest {
                     false,
                     false,
                     null,
+                    false,
                     false
             );
 
@@ -136,6 +142,7 @@ public final class HeicJpgCliTest {
                     false,
                     true,
                     null,
+                    false,
                     false
             );
 
@@ -158,13 +165,117 @@ public final class HeicJpgCliTest {
         }
     }
 
+    private static void shouldDeleteHeicWithMatchingJpgWhenConfirmed() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-delete");
+        try {
+            Path source = tempDir.resolve("IMG_4001.HEIC");
+            Path target = tempDir.resolve("IMG_4001.jpg");
+            Files.writeString(source, "source");
+            Files.writeString(target, "converted");
+
+            RecordingConverter converter = new RecordingConverter();
+            InvocationResult result = runCli(converter, new StubConfirmation(true),
+                    "--delete-converted", source.toString());
+
+            assertEquals(HeicJpgCli.EXIT_SUCCESS, result.exitCode(), "Confirmed cleanup should succeed.");
+            assertTrue(!Files.exists(source), "Confirmed cleanup should delete the HEIC source.");
+            assertTrue(Files.exists(target), "Cleanup must never delete the JPG target.");
+            assertContains(result.stdout(), "Deleted 1 file(s)", "Cleanup should report the deleted count.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldKeepHeicWithoutMatchingJpg() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-keep");
+        try {
+            Path source = tempDir.resolve("IMG_4101.HEIC");
+            Files.writeString(source, "source");
+
+            RecordingConverter converter = new RecordingConverter();
+            InvocationResult result = runCli(converter, new StubConfirmation(true),
+                    "--delete-converted", source.toString());
+
+            assertEquals(HeicJpgCli.EXIT_SUCCESS, result.exitCode(), "Cleanup with nothing to delete should succeed.");
+            assertTrue(Files.exists(source), "HEIC without a matching JPG must be kept.");
+            assertContains(result.stdout(), "KEEP", "Cleanup should report the kept file.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldKeepHeicWhenJpgIsEmpty() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-empty");
+        try {
+            Path source = tempDir.resolve("IMG_4201.HEIC");
+            Path target = tempDir.resolve("IMG_4201.jpg");
+            Files.writeString(source, "source");
+            Files.writeString(target, "");
+
+            RecordingConverter converter = new RecordingConverter();
+            InvocationResult result = runCli(converter, new StubConfirmation(true),
+                    "--delete-converted", source.toString());
+
+            assertTrue(Files.exists(source), "HEIC must be kept when the matching JPG is empty.");
+            assertContains(result.stdout(), "KEEP", "Empty JPG should leave the HEIC in the keep list.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldNotDeleteWhenConfirmationDeclined() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-decline");
+        try {
+            Path source = tempDir.resolve("IMG_4301.HEIC");
+            Path target = tempDir.resolve("IMG_4301.jpg");
+            Files.writeString(source, "source");
+            Files.writeString(target, "converted");
+
+            RecordingConverter converter = new RecordingConverter();
+            InvocationResult result = runCli(converter, new StubConfirmation(false),
+                    "--delete-converted", source.toString());
+
+            assertEquals(HeicJpgCli.EXIT_SUCCESS, result.exitCode(), "Declining cleanup should still exit successfully.");
+            assertTrue(Files.exists(source), "Declined cleanup must not delete anything.");
+            assertContains(result.stdout(), "Aborted", "Declined cleanup should report the abort.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldMatchJpgUnderOutputDirStructure() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-outdir");
+        try {
+            Path sourceRoot = Files.createDirectories(tempDir.resolve("iphone"));
+            Path source = sourceRoot.resolve("IMG_4401.HEIC");
+            Files.writeString(source, "source");
+            Path outputDir = tempDir.resolve("out");
+            Path target = Files.createDirectories(outputDir.resolve("iphone")).resolve("IMG_4401.jpg");
+            Files.writeString(target, "converted");
+
+            RecordingConverter converter = new RecordingConverter();
+            InvocationResult result = runCli(converter, new StubConfirmation(true),
+                    "--output-dir", outputDir.toString(),
+                    "--delete-converted", sourceRoot.toString());
+
+            assertEquals(HeicJpgCli.EXIT_SUCCESS, result.exitCode(), "Cleanup with output-dir should succeed.");
+            assertTrue(!Files.exists(source), "Cleanup should match the JPG under the preserved output-dir structure.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
     private static InvocationResult runCli(ImageConverter converter, String... args) {
+        return runCli(converter, new StubConfirmation(false), args);
+    }
+
+    private static InvocationResult runCli(ImageConverter converter, UserConfirmation confirmation, String... args) {
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
         PrintStream out = new PrintStream(stdout, true, StandardCharsets.UTF_8);
         PrintStream err = new PrintStream(stderr, true, StandardCharsets.UTF_8);
 
-        HeicJpgCli cli = new HeicJpgCli(out, err, converter);
+        HeicJpgCli cli = new HeicJpgCli(out, err, converter, confirmation);
         int exitCode = cli.run(args);
 
         return new InvocationResult(
@@ -215,6 +326,19 @@ public final class HeicJpgCliTest {
     }
 
     private record InvocationResult(int exitCode, String stdout, String stderr) {
+    }
+
+    private static final class StubConfirmation implements UserConfirmation {
+        private final boolean answer;
+
+        private StubConfirmation(boolean answer) {
+            this.answer = answer;
+        }
+
+        @Override
+        public boolean confirm(String message) {
+            return answer;
+        }
     }
 
     private static final class RecordingConverter implements ImageConverter {
