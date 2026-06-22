@@ -6,7 +6,7 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 
 ## Status
 
-진행률: 80%
+진행률: 100%
 
 - [x] Java 17 CLI 구현
 - [x] 단일 파일 변환
@@ -14,11 +14,13 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 - [x] 출력 디렉터리 구조 보존
 - [x] overwrite, dry-run, max-dimension 옵션
 - [x] 기본 테스트 스크립트
-- [ ] Homebrew 또는 설치 스크립트 정리
-- [ ] SwiftUI macOS/iOS 앱 확장
-- [ ] 변환 전후 스크린샷 추가
+- [x] 설치 스크립트 정리 (`scripts/install.sh`) + Homebrew formula 초안 (`Formula/`)
+- [x] SwiftUI macOS/iOS 앱 확장 (`swift-app/`)
+- [x] iOS 사진 앱/Files 저장 및 공유 시트
+- [x] 앱 원본 정리 UI와 변환 전후 썸네일
+- [x] 변환 전후 스크린샷 추가
 
-다음: Java CLI를 설치 가능한 형태로 정리한 뒤 SwiftUI 앱 확장 범위를 별도 문서로 분리하기
+다음: 첫 릴리스 태그를 만든 뒤 Homebrew formula의 URL과 sha256 확정
 
 ## Why
 
@@ -37,6 +39,18 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 - `--max-dimension`으로 긴 변 기준 리사이즈
 - `--delete-converted`로 검토 후 짝 `.jpg`가 있는 원본 `HEIC`만 영구 삭제 (삭제 전 확인)
 
+SwiftUI 앱은 같은 탐색·출력·건너뛰기 규칙을 사용하며 다음 기능을 추가로 제공합니다.
+
+- 변환 전후 썸네일 비교
+- iOS 사진 앱 저장, Files 내보내기, 시스템 공유 시트
+- 짝 JPEG가 존재하고 비어 있지 않은 원본만 확인 후 삭제
+
+## Screenshots
+
+| 변환 전 | 변환 후 |
+|---|---|
+| ![HEIC selected before conversion](docs/images/before-conversion.png) | ![Converted JPEG with save, share, and cleanup actions](docs/images/after-conversion.png) |
+
 ## Requirements
 
 - macOS
@@ -53,6 +67,14 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 ./scripts/build.sh
 ```
 
+설치(전역 명령으로 등록):
+
+```bash
+./scripts/install.sh          # ~/.local/bin 에 heic-jpg, heic-jpg-ui 링크
+```
+
+설치/배포 방법은 [docs/INSTALL.md](docs/INSTALL.md) 참고 (설치 스크립트 + Homebrew formula).
+
 실행:
 
 ```bash
@@ -61,6 +83,19 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 ./heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted
 ./heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted --max-dimension 2048
 ./heic-jpg ~/Pictures/iPhone --dry-run
+```
+
+UI 실행:
+
+```bash
+./heic-jpg-ui
+```
+
+더블클릭 가능한 macOS 앱 만들기:
+
+```bash
+./scripts/build-app.sh
+open "build/HEIC JPG.app"
 ```
 
 변환 결과를 직접 검토한 뒤, 짝 `.jpg`가 있는 원본 `HEIC`만 정리:
@@ -99,8 +134,12 @@ Options:
 - `src/main/java/` : CLI와 변환 로직
 - `src/test/java/` : 외부 라이브러리 없이 실행하는 기본 테스트
 - `scripts/build.sh` : `javac` 기반 빌드
+- `scripts/install.sh` / `scripts/uninstall.sh` : 로컬 설치/제거
 - `scripts/test.sh` : 컴파일 및 테스트 실행
+- `Formula/heic-jpg.rb` : Homebrew formula 초안 (tap 배포용)
+- `swift-app/` : SwiftUI macOS/iOS 앱 (ImageIO 기반 공유 코어)
 - `docs/ARCHITECTURE.md` : 설계 의도와 Swift 확장 계획
+- `docs/INSTALL.md` : 설치/배포 가이드
 
 ## Development
 
@@ -112,5 +151,9 @@ Options:
 
 ## Next Step
 
-다음 단계는 같은 문제를 SwiftUI 기반 macOS/iOS 앱으로 확장하는 것입니다.  
-이 저장소는 그 이전 단계인 “실사용 가능한 Java CLI”에 집중합니다.
+Java CLI로 문제를 먼저 닫고, 같은 입력/출력 규칙을 SwiftUI macOS/iOS 앱으로 확장했습니다.
+앱은 macOS 전용 `sips` 대신 ImageIO 기반 공유 코어를 써서 두 플랫폼에서 동일하게 동작합니다.
+빌드 방법은 [swift-app/README.md](swift-app/README.md) 참고.
+
+앱 기능과 검증은 완료했습니다. 배포 단계에서는 첫 릴리스 태그와 아카이브를 만든 뒤
+`Formula/heic-jpg.rb`의 URL과 sha256을 실제 값으로 교체합니다.
