@@ -1,0 +1,67 @@
+# XcodeGen spec — generates HeicJpgApp.xcodeproj with macOS + iOS app targets,
+# both sharing the HeicJpgKit Swift package and the SwiftUI views in Apps/Shared.
+#
+# Generate the project:
+#   brew install xcodegen      # one-time
+#   cd swift-app
+#   xcodegen generate
+#   open HeicJpgApp.xcodeproj
+#
+# Keeping the project as project.yml (instead of a checked-in .xcodeproj) avoids
+# the usual pbxproj merge conflicts and keeps the structure readable in git.
+name: HeicJpgApp
+
+options:
+  bundleIdPrefix: io.github.jean202.heicjpg
+  deploymentTarget:
+    macOS: "12.0"
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  HeicJpgKit:
+    path: .
+
+targets:
+  HeicJpgMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/Shared
+      - path: Apps/macOS
+    dependencies:
+      - package: HeicJpgKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.jean202.heicjpg.mac
+        PRODUCT_NAME: HEIC JPG
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.utilities"
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_STRICT_CONCURRENCY: complete
+
+  HeicJpgiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/Shared
+      - path: Apps/iOS
+    dependencies:
+      - package: HeicJpgKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.jean202.heicjpg.ios
+        PRODUCT_NAME: HEIC JPG
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.utilities"
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Save converted JPEG images to your photo library."
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_STRICT_CONCURRENCY: complete
