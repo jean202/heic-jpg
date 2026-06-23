@@ -1,12 +1,8 @@
 # Homebrew formula for heic-jpg.
 #
-# This is a DRAFT formula for distribution via a personal tap.
-# Before it works with `brew install`, you must:
-#   1. Push a tagged release to GitHub (e.g. v0.1.0).
-#   2. Update `url` to point at that release tarball.
-#   3. Fill in `sha256` with the tarball's checksum:
-#        curl -L https://github.com/jean202/heic-jpg/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
-#   4. Host this file in a tap repo named `homebrew-heic-jpg`, then:
+# Distribution via a personal tap:
+#   1. Host this file in a tap repo named `homebrew-heic-jpg`.
+#   2. Install with:
 #        brew tap jean202/heic-jpg
 #        brew install heic-jpg
 #
@@ -15,7 +11,7 @@ class HeicJpg < Formula
   desc "Batch-convert HEIC/HEIF images to JPEG on macOS"
   homepage "https://github.com/jean202/heic-jpg"
   url "https://github.com/jean202/heic-jpg/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "REPLACE_WITH_TARBALL_SHA256"
+  sha256 "891f58a5fc9d7d95426ff5e0c46aba83328e92eb971da061394458cc6e9fe94a"
   license "MIT"
   version "0.1.0"
 

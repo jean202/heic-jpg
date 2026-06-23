@@ -55,24 +55,32 @@ heic-jpg --help
 
 ## 2. Homebrew formula (tap 배포)
 
-`Formula/heic-jpg.rb`는 tap 배포용 **초안**입니다. 실제로 `brew install`이 되려면
-GitHub 릴리스를 먼저 만들어야 합니다.
+`Formula/heic-jpg.rb`는 tap 배포용 formula입니다. `v0.1.0` 소스 태그와 GitHub
+자동 생성 tarball의 sha256은 확정되어 있습니다.
 
 ### 2-1. 릴리스 만들기
 
+현재 릴리스:
+
+- tag: `v0.1.0`
+- source tarball: `https://github.com/jean202/heic-jpg/archive/refs/tags/v0.1.0.tar.gz`
+- sha256: `891f58a5fc9d7d95426ff5e0c46aba83328e92eb971da061394458cc6e9fe94a`
+
+다음 버전을 낼 때는 새 태그를 만들고 push합니다.
+
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag -a v0.1.1 -m "Release v0.1.1"
+git push origin v0.1.1
 ```
 
 GitHub가 자동 생성하는 소스 tarball의 체크섬을 구합니다:
 
 ```bash
-curl -L https://github.com/jean202/heic-jpg/archive/refs/tags/v0.1.0.tar.gz \
+curl -L https://github.com/jean202/heic-jpg/archive/refs/tags/v0.1.1.tar.gz \
   | shasum -a 256
 ```
 
-출력된 값을 `Formula/heic-jpg.rb`의 `sha256 "REPLACE_WITH_TARBALL_SHA256"`에 넣습니다.
+출력된 값을 `Formula/heic-jpg.rb`의 `url`, `sha256`, `version`에 반영합니다.
 
 ### 2-2. tap 저장소에 올리기
 

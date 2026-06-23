@@ -14,13 +14,13 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 - [x] 출력 디렉터리 구조 보존
 - [x] overwrite, dry-run, max-dimension 옵션
 - [x] 기본 테스트 스크립트
-- [x] 설치 스크립트 정리 (`scripts/install.sh`) + Homebrew formula 초안 (`Formula/`)
+- [x] 설치 스크립트 정리 (`scripts/install.sh`) + Homebrew formula (`Formula/`)
 - [x] SwiftUI macOS/iOS 앱 확장 (`swift-app/`)
 - [x] iOS 사진 앱/Files 저장 및 공유 시트
 - [x] 앱 원본 정리 UI와 변환 전후 썸네일
 - [x] 변환 전후 스크린샷 추가
 
-다음: 첫 릴리스 태그를 만든 뒤 Homebrew formula의 URL과 sha256 확정
+릴리스: `v0.1.0` 태그와 Homebrew formula sha256 확정 완료
 
 ## Why
 
@@ -136,7 +136,7 @@ Options:
 - `scripts/build.sh` : `javac` 기반 빌드
 - `scripts/install.sh` / `scripts/uninstall.sh` : 로컬 설치/제거
 - `scripts/test.sh` : 컴파일 및 테스트 실행
-- `Formula/heic-jpg.rb` : Homebrew formula 초안 (tap 배포용)
+- `Formula/heic-jpg.rb` : Homebrew formula (tap 배포용)
 - `swift-app/` : SwiftUI macOS/iOS 앱 (ImageIO 기반 공유 코어)
 - `docs/ARCHITECTURE.md` : 설계 의도와 Swift 확장 계획
 - `docs/INSTALL.md` : 설치/배포 가이드
@@ -155,5 +155,5 @@ Java CLI로 문제를 먼저 닫고, 같은 입력/출력 규칙을 SwiftUI macO
 앱은 macOS 전용 `sips` 대신 ImageIO 기반 공유 코어를 써서 두 플랫폼에서 동일하게 동작합니다.
 빌드 방법은 [swift-app/README.md](swift-app/README.md) 참고.
 
-앱 기능과 검증은 완료했습니다. 배포 단계에서는 첫 릴리스 태그와 아카이브를 만든 뒤
-`Formula/heic-jpg.rb`의 URL과 sha256을 실제 값으로 교체합니다.
+앱 기능과 검증은 완료했습니다. 첫 릴리스 태그 `v0.1.0`과 Homebrew formula sha256도
+확정했습니다. 외부 배포 시에는 `Formula/heic-jpg.rb`를 tap 저장소에 복사해 게시합니다.
