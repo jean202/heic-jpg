@@ -10,8 +10,10 @@ import java.awt.Insets;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.prefs.Preferences;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -41,6 +43,7 @@ public final class HeicJpgUi {
     private static final String PREF_OVERWRITE = "overwrite";
     private static final String PREF_LIMIT_DIMENSION = "limitDimension";
     private static final String PREF_MAX_DIMENSION = "maxDimension";
+    private static final String PREF_DELETE_CONVERTED = "deleteConverted";
 
     private final ConversionPlanner planner = new ConversionPlanner();
     private final ImageConverter converter = new SipsImageConverter();
@@ -54,6 +57,7 @@ public final class HeicJpgUi {
     private JCheckBox useOutputDirCheck;
     private JCheckBox overwriteCheck;
     private JCheckBox limitDimensionCheck;
+    private JCheckBox deleteConvertedCheck;
     private JSpinner maxDimensionSpinner;
     private JButton previewButton;
     private JButton convertButton;
@@ -133,6 +137,10 @@ public final class HeicJpgUi {
 
         maxDimensionSpinner = new JSpinner(new SpinnerNumberModel(2048, 1, 20000, 128));
         maxDimensionSpinner.addChangeListener(event -> savePreferences());
+
+        deleteConvertedCheck = new JCheckBox("변환 후 원본 HEIC 삭제");
+        deleteConvertedCheck.setToolTipText("JPG가 정상 생성된 원본만 영구 삭제합니다. 삭제 전 확인합니다.");
+        deleteConvertedCheck.addActionListener(event -> savePreferences());
 
         previewButton = new JButton("미리보기");
         previewButton.addActionListener(event -> runPreview());
@@ -226,6 +234,7 @@ public final class HeicJpgUi {
         options.add(overwriteCheck);
         options.add(limitDimensionCheck);
         options.add(maxDimensionSpinner);
+        options.add(deleteConvertedCheck);
 
         GridBagConstraints constraints = baseConstraints(2);
         constraints.gridx = 1;
@@ -357,7 +366,7 @@ public final class HeicJpgUi {
                 overwriteCheck.isSelected(),
                 dryRun,
                 maxDimension,
-                false,
+                !dryRun && deleteConvertedCheck.isSelected(),
                 false
         );
     }
@@ -410,6 +419,7 @@ public final class HeicJpgUi {
         useOutputDirCheck.setEnabled(!running);
         overwriteCheck.setEnabled(!running);
         limitDimensionCheck.setEnabled(!running);
+        deleteConvertedCheck.setEnabled(!running);
         maxDimensionSpinner.setEnabled(!running && limitDimensionCheck.isSelected());
     }
 
@@ -468,6 +478,7 @@ public final class HeicJpgUi {
         useOutputDirCheck.setSelected(preferences.getBoolean(PREF_USE_OUTPUT, false));
         overwriteCheck.setSelected(preferences.getBoolean(PREF_OVERWRITE, false));
         limitDimensionCheck.setSelected(preferences.getBoolean(PREF_LIMIT_DIMENSION, false));
+        deleteConvertedCheck.setSelected(preferences.getBoolean(PREF_DELETE_CONVERTED, false));
         maxDimensionSpinner.setValue(preferences.getInt(PREF_MAX_DIMENSION, 2048));
         maxDimensionSpinner.setEnabled(limitDimensionCheck.isSelected());
     }
@@ -482,6 +493,7 @@ public final class HeicJpgUi {
         preferences.putBoolean(PREF_USE_OUTPUT, useOutputDirCheck.isSelected());
         preferences.putBoolean(PREF_OVERWRITE, overwriteCheck.isSelected());
         preferences.putBoolean(PREF_LIMIT_DIMENSION, limitDimensionCheck.isSelected());
+        preferences.putBoolean(PREF_DELETE_CONVERTED, deleteConvertedCheck.isSelected());
         preferences.putInt(PREF_MAX_DIMENSION, (Integer) maxDimensionSpinner.getValue());
     }
 
@@ -586,9 +598,46 @@ public final class HeicJpgUi {
                 setProgress(Math.round(((index + 1) * 100f) / total));
             }
 
-            return WorkerResult.completed(
-                    "변환 " + converted + "개, 건너뜀 " + skipped + "개, 실패 " + failed + "개"
-            );
+            String summary = "변환 " + converted + "개, 건너뜀 " + skipped + "개, 실패 " + failed + "개";
+            if (options.deleteConverted()) {
+                summary += deleteConvertedSources(plan);
+            }
+            return WorkerResult.completed(summary);
+        }
+
+        // Mirrors the CLI's --delete-converted rule: only remove HEIC/HEIF sources whose
+        // matching JPG now exists and is non-empty, and only after explicit confirmation.
+        private String deleteConvertedSources(ConversionPlan plan) {
+            List<ConversionTask> deletable = new ArrayList<>();
+            for (ConversionTask task : plan.tasks()) {
+                if (hasConvertedJpg(task.target())) {
+                    deletable.add(task);
+                }
+            }
+
+            if (deletable.isEmpty()) {
+                publish("삭제할 원본이 없습니다 (정상 변환된 JPG 없음).");
+                return "; 삭제 0개";
+            }
+
+            if (!confirmDeletion(deletable.size())) {
+                publish("원본 삭제를 취소했습니다.");
+                return "; 삭제 취소";
+            }
+
+            int deleted = 0;
+            int deleteFailed = 0;
+            for (ConversionTask task : deletable) {
+                try {
+                    Files.delete(task.source());
+                    publish("DELETED " + task.source());
+                    deleted++;
+                } catch (IOException exception) {
+                    publish("FAIL    " + task.source() + "  (" + exception.getMessage() + ")");
+                    deleteFailed++;
+                }
+            }
+            return "; 원본 삭제 " + deleted + "개, 삭제 실패 " + deleteFailed + "개";
         }
 
         @Override
@@ -608,6 +657,36 @@ public final class HeicJpgUi {
 
     private String formatMapping(ConversionTask task) {
         return task.source() + " -> " + task.target();
+    }
+
+    private boolean hasConvertedJpg(Path target) {
+        try {
+            return Files.isRegularFile(target) && Files.size(target) > 0;
+        } catch (IOException exception) {
+            return false;
+        }
+    }
+
+    // Called from a background worker; show the modal prompt on the EDT and wait for the answer.
+    private boolean confirmDeletion(int count) {
+        AtomicBoolean confirmed = new AtomicBoolean(false);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                int choice = JOptionPane.showConfirmDialog(
+                        frame,
+                        "원본 HEIC " + count + "개를 영구 삭제합니다.\n되돌릴 수 없습니다. 삭제할까요?",
+                        "원본 삭제 확인",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                confirmed.set(choice == JOptionPane.YES_OPTION);
+            });
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (java.lang.reflect.InvocationTargetException exception) {
+            return false;
+        }
+        return confirmed.get();
     }
 
     private record WorkerResult(ConversionPlan plan, String summary, String error) {
