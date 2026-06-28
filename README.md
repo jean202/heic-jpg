@@ -38,6 +38,7 @@ macOS에서 `HEIC`/`HEIF` 파일을 `JPEG`로 일괄 변환하는 Java 17 CLI입
 - `--dry-run`으로 실제 변환 없이 작업 계획 확인
 - `--max-dimension`으로 긴 변 기준 리사이즈
 - `--delete-converted`로 검토 후 짝 `.jpg`가 있는 원본 `HEIC`만 영구 삭제 (삭제 전 확인)
+- `--rename-different`로 같은 이름의 `.jpg`가 있어도 사진 내용이 다르면 `name-1.jpg`로 저장 (지각 해시 비교, 같은 사진이면 그대로 둠)
 
 SwiftUI 앱은 같은 탐색·출력·건너뛰기 규칙을 사용하며 다음 기능을 추가로 제공합니다.
 
@@ -126,6 +127,10 @@ Options:
       --max-dimension N     Resize the longest edge to N pixels before saving.
       --delete-converted    Permanently delete HEIC/HEIF inputs that already
                             have a matching .jpg. Prompts before deleting.
+      --rename-different    If a .jpg with the target name already exists but
+                            shows a different picture, write the conversion as
+                            name-1.jpg, name-2.jpg, ... An existing .jpg showing
+                            the same picture is left untouched.
   -h, --help                Show this help.
 ```
 

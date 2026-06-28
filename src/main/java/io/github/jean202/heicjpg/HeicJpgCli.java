@@ -25,6 +25,10 @@ final class HeicJpgCli {
                   --max-dimension N     Resize the longest edge to N pixels before saving.
                   --delete-converted    Permanently delete HEIC/HEIF inputs that already
                                         have a matching .jpg. Prompts before deleting.
+                  --rename-different    If a .jpg with the target name already exists but
+                                        shows a different picture, write the conversion as
+                                        name-1.jpg, name-2.jpg, ... An existing .jpg showing
+                                        the same picture is left untouched.
               -h, --help                Show this help.
 
             Examples:
@@ -33,6 +37,7 @@ final class HeicJpgCli {
               heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted
               heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted --max-dimension 2048
               heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted --delete-converted
+              heic-jpg ~/Pictures/iPhone --rename-different
             """;
 
     private final PrintStream out;
@@ -94,6 +99,10 @@ final class HeicJpgCli {
                 return executeCleanup(plan);
             }
 
+            if (options.renameDifferent() && !options.dryRun()) {
+                return executeRenameDifferent(plan, options);
+            }
+
             return executePlan(plan, options);
         } catch (IllegalArgumentException exception) {
             err.println("error: " + exception.getMessage());
@@ -148,6 +157,39 @@ final class HeicJpgCli {
         }
 
         out.printf("Converted %d file(s); skipped %d; failed %d.%n", converted, skipped, failed);
+        return failed == 0 ? EXIT_SUCCESS : EXIT_CONVERSION_FAILURE;
+    }
+
+    private int executeRenameDifferent(ConversionPlan plan, CliOptions options) {
+        ContentAwareConverter contentConverter = new ContentAwareConverter(converter);
+        int written = 0;
+        int skipped = 0;
+        int failed = 0;
+
+        for (ConversionTask task : plan.tasks()) {
+            try {
+                ContentAwareConverter.Result result = contentConverter.convert(task, options.maxDimension());
+                if (result.skipped()) {
+                    out.println("SAME " + task.source() + "  (matches " + result.skippedExisting() + ")");
+                    skipped++;
+                } else {
+                    out.println("OK   " + task.source() + " -> " + result.written());
+                    written++;
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                err.println("FAIL " + task.source());
+                err.println("  Conversion interrupted.");
+                failed++;
+                break;
+            } catch (IOException exception) {
+                err.println("FAIL " + task.source());
+                err.println("  " + exception.getMessage());
+                failed++;
+            }
+        }
+
+        out.printf("Wrote %d file(s); skipped %d (same picture); failed %d.%n", written, skipped, failed);
         return failed == 0 ? EXIT_SUCCESS : EXIT_CONVERSION_FAILURE;
     }
 

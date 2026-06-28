@@ -1,5 +1,6 @@
 package io.github.jean202.heicjpg;
 
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -9,12 +10,17 @@ import java.nio.file.Path;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import javax.imageio.ImageIO;
 
 public final class HeicJpgCliTest {
     private HeicJpgCliTest() {
     }
 
     public static void main(String[] args) throws Exception {
+        shouldHashResizedImageAsSamePicture();
+        shouldWriteBaseNameWhenNoExistingTarget();
+        shouldWriteVariantWhenExistingPictureDiffers();
+        shouldSkipWhenSamePictureAlreadyExists();
         shouldPlanDirectoryRecursively();
         shouldSkipExistingTargetsWithoutOverwrite();
         shouldSupportDryRunWithoutCallingConverter();
@@ -26,6 +32,119 @@ public final class HeicJpgCliTest {
         shouldNotDeleteWhenConfirmationDeclined();
         shouldMatchJpgUnderOutputDirStructure();
         System.out.println("All tests passed.");
+    }
+
+    private static void shouldHashResizedImageAsSamePicture() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-phash");
+        try {
+            Path large = tempDir.resolve("large.jpg");
+            Path small = tempDir.resolve("small.jpg");
+            ImageIO.write(gradient(256, 256, true), "jpg", large.toFile());
+            ImageIO.write(gradient(96, 96, true), "jpg", small.toFile());
+
+            int distance = ImageContentHash.distance(
+                    ImageContentHash.dHash(large), ImageContentHash.dHash(small));
+            assertTrue(distance <= ContentAwareConverter.DEFAULT_THRESHOLD,
+                    "Same picture at different sizes should hash within threshold, was " + distance);
+
+            Path opposite = tempDir.resolve("opposite.jpg");
+            ImageIO.write(gradient(256, 256, false), "jpg", opposite.toFile());
+            int different = ImageContentHash.distance(
+                    ImageContentHash.dHash(large), ImageContentHash.dHash(opposite));
+            assertTrue(different > ContentAwareConverter.DEFAULT_THRESHOLD,
+                    "A clearly different picture should exceed the threshold, was " + different);
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldWriteBaseNameWhenNoExistingTarget() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-rename");
+        try {
+            Path source = tempDir.resolve("IMG.HEIC");
+            Files.writeString(source, "A");
+            ConversionTask task = new ConversionTask(source, tempDir.resolve("IMG.jpg"));
+
+            ContentAwareConverter.Result result =
+                    new ContentAwareConverter(new TaggedImageConverter()).convert(task, null);
+
+            assertTrue(!result.skipped(), "A fresh target should be written, not skipped.");
+            assertEquals(tempDir.resolve("IMG.jpg"), result.written(), "Should write the base name.");
+            assertTrue(Files.exists(tempDir.resolve("IMG.jpg")), "Base jpg should exist on disk.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldWriteVariantWhenExistingPictureDiffers() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-rename");
+        try {
+            // Existing IMG.jpg is a different picture (tag B); the source converts to tag A.
+            ImageIO.write(taggedImage("B"), "jpg", tempDir.resolve("IMG.jpg").toFile());
+            Path source = tempDir.resolve("IMG.HEIC");
+            Files.writeString(source, "A");
+            ConversionTask task = new ConversionTask(source, tempDir.resolve("IMG.jpg"));
+
+            ContentAwareConverter.Result result =
+                    new ContentAwareConverter(new TaggedImageConverter()).convert(task, null);
+
+            assertEquals(tempDir.resolve("IMG-1.jpg"), result.written(),
+                    "A different existing picture should push the conversion to -1.");
+            assertTrue(Files.exists(tempDir.resolve("IMG-1.jpg")), "Variant jpg should exist.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void shouldSkipWhenSamePictureAlreadyExists() throws Exception {
+        Path tempDir = Files.createTempDirectory("heic-jpg-rename");
+        try {
+            // Existing IMG.jpg is the same picture (tag A) the source converts to.
+            ImageIO.write(taggedImage("A"), "jpg", tempDir.resolve("IMG.jpg").toFile());
+            Path source = tempDir.resolve("IMG.HEIC");
+            Files.writeString(source, "A");
+            ConversionTask task = new ConversionTask(source, tempDir.resolve("IMG.jpg"));
+
+            ContentAwareConverter.Result result =
+                    new ContentAwareConverter(new TaggedImageConverter()).convert(task, null);
+
+            assertTrue(result.skipped(), "An identical existing picture should be skipped.");
+            assertEquals(tempDir.resolve("IMG.jpg"), result.skippedExisting(),
+                    "Skip should point at the matching existing file.");
+            assertTrue(!Files.exists(tempDir.resolve("IMG-1.jpg")), "No variant should be created.");
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    /** Test converter that writes a deterministic picture chosen by the source file's text tag. */
+    private static final class TaggedImageConverter implements ImageConverter {
+        @Override
+        public void convert(ConversionTask task, Integer maxDimension) throws IOException {
+            String tag = Files.readString(task.source());
+            Path parent = task.target().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            ImageIO.write(taggedImage(tag), "jpg", task.target().toFile());
+        }
+    }
+
+    private static BufferedImage taggedImage(String tag) {
+        return gradient(128, 128, !"B".equals(tag));
+    }
+
+    private static BufferedImage gradient(int width, int height, boolean brighterRight) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int x = 0; x < width; x++) {
+            double fraction = (double) x / (width - 1);
+            int value = (int) Math.round((brighterRight ? fraction : 1 - fraction) * 255);
+            int rgb = (value << 16) | (value << 8) | value;
+            for (int y = 0; y < height; y++) {
+                image.setRGB(x, y, rgb);
+            }
+        }
+        return image;
     }
 
     private static void shouldPlanDirectoryRecursively() throws Exception {
@@ -43,6 +162,7 @@ public final class HeicJpgCliTest {
                     false,
                     false,
                     null,
+                    false,
                     false,
                     false
             );
@@ -142,6 +262,7 @@ public final class HeicJpgCliTest {
                     false,
                     true,
                     null,
+                    false,
                     false,
                     false
             );

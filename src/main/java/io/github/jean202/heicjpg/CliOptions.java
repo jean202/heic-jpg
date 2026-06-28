@@ -10,6 +10,7 @@ record CliOptions(
         boolean dryRun,
         Integer maxDimension,
         boolean deleteConverted,
+        boolean renameDifferent,
         boolean help
 ) {
 }
