@@ -3,6 +3,7 @@ package io.github.jean202.heicjpg;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.text.Normalizer;
 
@@ -22,7 +23,11 @@ final class UserPathResolver {
             String segment = absolutePath.getName(index).toString();
             Path directCandidate = current.resolve(segment);
             if (Files.exists(directCandidate)) {
-                current = directCandidate;
+                // On normalization-insensitive filesystems (e.g. APFS) Files.exists succeeds
+                // for a Unicode-composed (NFC) segment even when the on-disk entry is stored
+                // decomposed (NFD). Resolve to the actual filesystem spelling so downstream
+                // path equality (dedup, output collision) compares the real entry.
+                current = actualSpelling(current, directCandidate);
                 continue;
             }
 
@@ -42,6 +47,15 @@ final class UserPathResolver {
         }
 
         return current.normalize();
+    }
+
+    private static Path actualSpelling(Path parent, Path candidate) {
+        try {
+            Path realName = candidate.toRealPath(LinkOption.NOFOLLOW_LINKS).getFileName();
+            return realName == null ? candidate : parent.resolve(realName);
+        } catch (IOException e) {
+            return candidate;
+        }
     }
 
     private static Path appendRemaining(Path current, Path fullPath, int startIndex) {
