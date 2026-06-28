@@ -3,6 +3,9 @@ package io.github.jean202.heicjpg;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 final class HeicJpgCli {
     static final int EXIT_SUCCESS = 0;
@@ -20,6 +23,8 @@ final class HeicJpgCli {
                   --overwrite           Replace existing .jpg targets.
                   --dry-run             Print the planned work without converting files.
                   --max-dimension N     Resize the longest edge to N pixels before saving.
+                  --delete-converted    Permanently delete HEIC/HEIF inputs that already
+                                        have a matching .jpg. Prompts before deleting.
               -h, --help                Show this help.
 
             Examples:
@@ -27,22 +32,39 @@ final class HeicJpgCli {
               heic-jpg ~/Pictures/iPhone
               heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted
               heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted --max-dimension 2048
+              heic-jpg ~/Pictures/iPhone --output-dir ~/Pictures/converted --delete-converted
             """;
 
     private final PrintStream out;
     private final PrintStream err;
     private final ConversionPlanner planner;
     private final ImageConverter converter;
+    private final UserConfirmation confirmation;
 
     HeicJpgCli(PrintStream out, PrintStream err, ImageConverter converter) {
-        this(out, err, new ConversionPlanner(), converter);
+        this(out, err, new ConversionPlanner(), converter, new ConsoleUserConfirmation(System.in, out));
     }
 
     HeicJpgCli(PrintStream out, PrintStream err, ConversionPlanner planner, ImageConverter converter) {
+        this(out, err, planner, converter, new ConsoleUserConfirmation(System.in, out));
+    }
+
+    HeicJpgCli(PrintStream out, PrintStream err, ImageConverter converter, UserConfirmation confirmation) {
+        this(out, err, new ConversionPlanner(), converter, confirmation);
+    }
+
+    HeicJpgCli(
+            PrintStream out,
+            PrintStream err,
+            ConversionPlanner planner,
+            ImageConverter converter,
+            UserConfirmation confirmation
+    ) {
         this.out = out;
         this.err = err;
         this.planner = planner;
         this.converter = converter;
+        this.confirmation = confirmation;
     }
 
     int run(String[] args) {
@@ -66,6 +88,10 @@ final class HeicJpgCli {
             if (plan.tasks().isEmpty()) {
                 out.println("No HEIC/HEIF files found.");
                 return EXIT_SUCCESS;
+            }
+
+            if (options.deleteConverted()) {
+                return executeCleanup(plan);
             }
 
             return executePlan(plan, options);
@@ -123,6 +149,61 @@ final class HeicJpgCli {
 
         out.printf("Converted %d file(s); skipped %d; failed %d.%n", converted, skipped, failed);
         return failed == 0 ? EXIT_SUCCESS : EXIT_CONVERSION_FAILURE;
+    }
+
+    private int executeCleanup(ConversionPlan plan) {
+        List<ConversionTask> deletable = new ArrayList<>();
+        int kept = 0;
+
+        for (ConversionTask task : plan.tasks()) {
+            if (hasConvertedJpg(task.target())) {
+                out.println("DELETE  " + task.source() + "  (jpg: " + task.target() + ")");
+                deletable.add(task);
+            } else {
+                out.println("KEEP    " + task.source() + "  (no matching .jpg)");
+                kept++;
+            }
+        }
+
+        out.printf("%d HEIC file(s) scanned: %d to delete, %d kept (no jpg).%n",
+                plan.tasks().size(), deletable.size(), kept);
+
+        if (deletable.isEmpty()) {
+            out.println("Nothing to delete.");
+            return EXIT_SUCCESS;
+        }
+
+        boolean confirmed = confirmation.confirm(
+                String.format("Permanently delete %d file(s)? This cannot be undone. [y/N]: ", deletable.size()));
+        if (!confirmed) {
+            out.println("Aborted. No files deleted.");
+            return EXIT_SUCCESS;
+        }
+
+        int deleted = 0;
+        int failed = 0;
+        for (ConversionTask task : deletable) {
+            try {
+                Files.delete(task.source());
+                out.println("DELETED " + task.source());
+                deleted++;
+            } catch (IOException exception) {
+                err.println("FAIL    " + task.source());
+                err.println("  " + exception.getMessage());
+                failed++;
+            }
+        }
+
+        out.printf("Deleted %d file(s); failed %d.%n", deleted, failed);
+        return failed == 0 ? EXIT_SUCCESS : EXIT_CONVERSION_FAILURE;
+    }
+
+    private boolean hasConvertedJpg(Path target) {
+        try {
+            return Files.isRegularFile(target) && Files.size(target) > 0;
+        } catch (IOException exception) {
+            return false;
+        }
     }
 
     private String formatMapping(ConversionTask task) {

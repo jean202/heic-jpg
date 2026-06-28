@@ -11,4 +11,4 @@ ROOT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 "$ROOT_DIR/scripts/build.sh" >/dev/null
 
-exec java -cp "$ROOT_DIR/build/classes" io.github.jean202.heicjpg.Main "$@"
+exec java -Xdock:name="HEIC JPG" -cp "$ROOT_DIR/build/classes" io.github.jean202.heicjpg.HeicJpgUi "$@"

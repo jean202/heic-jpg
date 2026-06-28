@@ -5,3 +5,9 @@ build/
 *.heic
 *.jpg
 *.jpeg
+
+# Swift app
+swift-app/.build/
+swift-app/HeicJpgApp.xcodeproj/
+DerivedData/
+*.xcuserstate
