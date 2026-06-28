@@ -44,6 +44,7 @@ public final class HeicJpgUi {
     private static final String PREF_LIMIT_DIMENSION = "limitDimension";
     private static final String PREF_MAX_DIMENSION = "maxDimension";
     private static final String PREF_DELETE_CONVERTED = "deleteConverted";
+    private static final String PREF_RENAME_DIFFERENT = "renameDifferent";
 
     private final ConversionPlanner planner = new ConversionPlanner();
     private final ImageConverter converter = new SipsImageConverter();
@@ -58,6 +59,7 @@ public final class HeicJpgUi {
     private JCheckBox overwriteCheck;
     private JCheckBox limitDimensionCheck;
     private JCheckBox deleteConvertedCheck;
+    private JCheckBox renameDifferentCheck;
     private JSpinner maxDimensionSpinner;
     private JButton previewButton;
     private JButton convertButton;
@@ -128,7 +130,12 @@ public final class HeicJpgUi {
         chooseOutputButton.addActionListener(event -> chooseOutput());
 
         overwriteCheck = new JCheckBox("기존 JPG 덮어쓰기");
-        overwriteCheck.addActionListener(event -> savePreferences());
+        overwriteCheck.addActionListener(event -> {
+            if (overwriteCheck.isSelected()) {
+                renameDifferentCheck.setSelected(false);
+            }
+            savePreferences();
+        });
 
         limitDimensionCheck = new JCheckBox("긴 변 제한");
         limitDimensionCheck.addActionListener(event -> {
@@ -142,6 +149,16 @@ public final class HeicJpgUi {
         deleteConvertedCheck = new JCheckBox("변환 후 원본 HEIC 삭제");
         deleteConvertedCheck.setToolTipText("JPG가 정상 생성된 원본만 영구 삭제합니다. 삭제 전 확인합니다.");
         deleteConvertedCheck.addActionListener(event -> savePreferences());
+
+        renameDifferentCheck = new JCheckBox("내용 다르면 새 이름(-1, -2)으로 저장");
+        renameDifferentCheck.setToolTipText("같은 이름의 JPG가 있어도 사진 내용이 다르면 name-1.jpg로 저장합니다. "
+                + "같은 사진이면 그대로 둡니다. '덮어쓰기'와 함께 쓸 수 없습니다.");
+        renameDifferentCheck.addActionListener(event -> {
+            if (renameDifferentCheck.isSelected()) {
+                overwriteCheck.setSelected(false);
+            }
+            savePreferences();
+        });
 
         previewButton = new JButton("미리보기");
         previewButton.addActionListener(event -> runPreview());
@@ -240,6 +257,7 @@ public final class HeicJpgUi {
         options.add(limitDimensionCheck);
         options.add(maxDimensionSpinner);
         options.add(deleteConvertedCheck);
+        options.add(renameDifferentCheck);
 
         GridBagConstraints constraints = baseConstraints(2);
         constraints.gridx = 1;
@@ -382,6 +400,7 @@ public final class HeicJpgUi {
                 dryRun,
                 maxDimension,
                 !dryRun && deleteConvertedCheck.isSelected(),
+                !dryRun && renameDifferentCheck.isSelected(),
                 false
         );
     }
@@ -436,6 +455,7 @@ public final class HeicJpgUi {
         overwriteCheck.setEnabled(!running);
         limitDimensionCheck.setEnabled(!running);
         deleteConvertedCheck.setEnabled(!running);
+        renameDifferentCheck.setEnabled(!running);
         maxDimensionSpinner.setEnabled(!running && limitDimensionCheck.isSelected());
     }
 
@@ -496,6 +516,7 @@ public final class HeicJpgUi {
         overwriteCheck.setSelected(preferences.getBoolean(PREF_OVERWRITE, false));
         limitDimensionCheck.setSelected(preferences.getBoolean(PREF_LIMIT_DIMENSION, false));
         deleteConvertedCheck.setSelected(preferences.getBoolean(PREF_DELETE_CONVERTED, false));
+        renameDifferentCheck.setSelected(preferences.getBoolean(PREF_RENAME_DIFFERENT, false));
         maxDimensionSpinner.setValue(preferences.getInt(PREF_MAX_DIMENSION, 2048));
         maxDimensionSpinner.setEnabled(limitDimensionCheck.isSelected());
     }
@@ -511,6 +532,7 @@ public final class HeicJpgUi {
         preferences.putBoolean(PREF_OVERWRITE, overwriteCheck.isSelected());
         preferences.putBoolean(PREF_LIMIT_DIMENSION, limitDimensionCheck.isSelected());
         preferences.putBoolean(PREF_DELETE_CONVERTED, deleteConvertedCheck.isSelected());
+        preferences.putBoolean(PREF_RENAME_DIFFERENT, renameDifferentCheck.isSelected());
         preferences.putInt(PREF_MAX_DIMENSION, (Integer) maxDimensionSpinner.getValue());
     }
 
@@ -584,6 +606,8 @@ public final class HeicJpgUi {
                 return WorkerResult.completed("변환할 HEIC/HEIF 파일이 없습니다.");
             }
 
+            ContentAwareConverter contentConverter =
+                    options.renameDifferent() ? new ContentAwareConverter(converter) : null;
             int converted = 0;
             int skipped = 0;
             int failed = 0;
@@ -591,25 +615,34 @@ public final class HeicJpgUi {
 
             for (int index = 0; index < total; index++) {
                 ConversionTask task = plan.tasks().get(index);
-                if (Files.exists(task.target()) && !options.overwrite()) {
-                    publish("SKIP " + formatMapping(task) + " (target exists)");
-                    skipped++;
-                } else {
-                    try {
+                try {
+                    if (contentConverter != null) {
+                        ContentAwareConverter.Result result = contentConverter.convert(task, options.maxDimension());
+                        if (result.skipped()) {
+                            publish("SAME " + task.source() + "  (이미 있음: " + result.skippedExisting() + ")");
+                            skipped++;
+                        } else {
+                            publish("OK   " + task.source() + " -> " + result.written());
+                            converted++;
+                        }
+                    } else if (Files.exists(task.target()) && !options.overwrite()) {
+                        publish("SKIP " + formatMapping(task) + " (target exists)");
+                        skipped++;
+                    } else {
                         converter.convert(task, options.maxDimension());
                         publish("OK   " + formatMapping(task));
                         converted++;
-                    } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
-                        publish("FAIL " + formatMapping(task));
-                        publish("  Conversion interrupted.");
-                        failed++;
-                        break;
-                    } catch (IOException exception) {
-                        publish("FAIL " + formatMapping(task));
-                        publish("  " + exception.getMessage());
-                        failed++;
                     }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    publish("FAIL " + formatMapping(task));
+                    publish("  Conversion interrupted.");
+                    failed++;
+                    break;
+                } catch (IOException exception) {
+                    publish("FAIL " + formatMapping(task));
+                    publish("  " + exception.getMessage());
+                    failed++;
                 }
 
                 setProgress(Math.round(((index + 1) * 100f) / total));
