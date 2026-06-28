@@ -61,6 +61,7 @@ public final class HeicJpgUi {
     private JSpinner maxDimensionSpinner;
     private JButton previewButton;
     private JButton convertButton;
+    private JButton cleanupButton;
     private JButton openOutputButton;
     private JTextArea logArea;
     private JLabel statusLabel;
@@ -147,6 +148,10 @@ public final class HeicJpgUi {
 
         convertButton = new JButton("변환 시작");
         convertButton.addActionListener(event -> runConversion());
+
+        cleanupButton = new JButton("원본 정리");
+        cleanupButton.setToolTipText("이미 JPG로 변환된 원본 HEIC만 찾아 삭제합니다. 변환은 하지 않습니다.");
+        cleanupButton.addActionListener(event -> runCleanup());
 
         openOutputButton = new JButton("Finder 열기");
         openOutputButton.addActionListener(event -> openOutputLocation());
@@ -247,6 +252,7 @@ public final class HeicJpgUi {
     private void addActionsRow(JPanel panel) {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.add(openOutputButton);
+        actions.add(cleanupButton);
         actions.add(previewButton);
         actions.add(convertButton);
 
@@ -319,6 +325,15 @@ public final class HeicJpgUi {
         }
 
         runWorker("변환 중...", new ConversionWorker(options));
+    }
+
+    private void runCleanup() {
+        CliOptions options = buildOptions(false);
+        if (options == null) {
+            return;
+        }
+
+        runWorker("원본 정리 중...", new CleanupWorker(options));
     }
 
     private void runWorker(String status, SwingWorker<WorkerResult, String> worker) {
@@ -411,6 +426,7 @@ public final class HeicJpgUi {
     private void setRunning(boolean running) {
         previewButton.setEnabled(!running && hasInput());
         convertButton.setEnabled(!running && hasInput());
+        cleanupButton.setEnabled(!running && hasInput());
         openOutputButton.setEnabled(!running && hasInput());
         inputField.setEnabled(!running);
         chooseInputButton.setEnabled(!running);
@@ -427,6 +443,7 @@ public final class HeicJpgUi {
         boolean enabled = hasInput();
         previewButton.setEnabled(enabled);
         convertButton.setEnabled(enabled);
+        cleanupButton.setEnabled(enabled);
         openOutputButton.setEnabled(enabled);
     }
 
@@ -600,44 +617,9 @@ public final class HeicJpgUi {
 
             String summary = "변환 " + converted + "개, 건너뜀 " + skipped + "개, 실패 " + failed + "개";
             if (options.deleteConverted()) {
-                summary += deleteConvertedSources(plan);
+                summary += cleanupConvertedSources(plan, this::publish);
             }
             return WorkerResult.completed(summary);
-        }
-
-        // Mirrors the CLI's --delete-converted rule: only remove HEIC/HEIF sources whose
-        // matching JPG now exists and is non-empty, and only after explicit confirmation.
-        private String deleteConvertedSources(ConversionPlan plan) {
-            List<ConversionTask> deletable = new ArrayList<>();
-            for (ConversionTask task : plan.tasks()) {
-                if (hasConvertedJpg(task.target())) {
-                    deletable.add(task);
-                }
-            }
-
-            if (deletable.isEmpty()) {
-                publish("삭제할 원본이 없습니다 (정상 변환된 JPG 없음).");
-                return "; 삭제 0개";
-            }
-
-            if (!confirmDeletion(deletable.size())) {
-                publish("원본 삭제를 취소했습니다.");
-                return "; 삭제 취소";
-            }
-
-            int deleted = 0;
-            int deleteFailed = 0;
-            for (ConversionTask task : deletable) {
-                try {
-                    Files.delete(task.source());
-                    publish("DELETED " + task.source());
-                    deleted++;
-                } catch (IOException exception) {
-                    publish("FAIL    " + task.source() + "  (" + exception.getMessage() + ")");
-                    deleteFailed++;
-                }
-            }
-            return "; 원본 삭제 " + deleted + "개, 삭제 실패 " + deleteFailed + "개";
         }
 
         @Override
@@ -653,6 +635,81 @@ public final class HeicJpgUi {
                 finishWorker(WorkerResult.failed(exception.getMessage()));
             }
         }
+    }
+
+    private final class CleanupWorker extends SwingWorker<WorkerResult, String> {
+        private final CliOptions options;
+
+        private CleanupWorker(CliOptions options) {
+            this.options = options;
+        }
+
+        @Override
+        protected WorkerResult doInBackground() {
+            WorkerResult loaded = loadPlan(options);
+            if (loaded.error() != null) {
+                return loaded;
+            }
+
+            ConversionPlan plan = Objects.requireNonNull(loaded.plan());
+            if (plan.tasks().isEmpty()) {
+                return WorkerResult.completed("정리할 HEIC/HEIF 파일이 없습니다.");
+            }
+
+            String result = cleanupConvertedSources(plan, this::publish);
+            setProgress(100);
+            return WorkerResult.completed("원본 정리 완료" + result);
+        }
+
+        @Override
+        protected void process(List<String> chunks) {
+            chunks.forEach(HeicJpgUi.this::appendLog);
+        }
+
+        @Override
+        protected void done() {
+            try {
+                finishWorker(get());
+            } catch (Exception exception) {
+                finishWorker(WorkerResult.failed(exception.getMessage()));
+            }
+        }
+    }
+
+    // Mirrors the CLI's --delete-converted rule: only remove HEIC/HEIF sources whose
+    // matching JPG already exists and is non-empty, and only after explicit confirmation.
+    // Shared by the convert-then-delete flow and the standalone cleanup action.
+    private String cleanupConvertedSources(ConversionPlan plan, java.util.function.Consumer<String> log) {
+        List<ConversionTask> deletable = new ArrayList<>();
+        for (ConversionTask task : plan.tasks()) {
+            if (hasConvertedJpg(task.target())) {
+                deletable.add(task);
+            }
+        }
+
+        if (deletable.isEmpty()) {
+            log.accept("삭제할 원본이 없습니다 (대응하는 JPG 없음).");
+            return "; 삭제 0개";
+        }
+
+        if (!confirmDeletion(deletable.size())) {
+            log.accept("원본 삭제를 취소했습니다.");
+            return "; 삭제 취소";
+        }
+
+        int deleted = 0;
+        int deleteFailed = 0;
+        for (ConversionTask task : deletable) {
+            try {
+                Files.delete(task.source());
+                log.accept("DELETED " + task.source());
+                deleted++;
+            } catch (IOException exception) {
+                log.accept("FAIL    " + task.source() + "  (" + exception.getMessage() + ")");
+                deleteFailed++;
+            }
+        }
+        return "; 원본 삭제 " + deleted + "개, 삭제 실패 " + deleteFailed + "개";
     }
 
     private String formatMapping(ConversionTask task) {
